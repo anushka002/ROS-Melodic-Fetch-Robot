@@ -206,8 +206,46 @@ rosmsg show geometry_msgs/Twist
 ![test 3](https://github.com/user-attachments/assets/d80a03ad-dceb-4b31-b9fb-e94bb2943d0c)
 
 ---
+### Chapter 3: Learning Topics Actions and Goals
 
-### Chapter 3: Controlling Fetch’s Arm and Gripper to Pick Up an Object
+
+1. Using Terminal to control the Robotic Arm:
+```
+rostopic pub -1 /arm_controller/follow_joint_trajectory/goal control_msgs/FollowJointTrajectoryActionGoal "{
+  goal: {
+    trajectory: {
+      joint_names: ['shoulder_pan_joint', 'shoulder_lift_joint', 'upperarm_roll_joint', 'elbow_flex_joint', 'forearm_roll_joint', 'wrist_flex_joint', 'wrist_roll_joint'],
+      points: [
+        {
+          positions: [0.0, 0.0, 0.0, 01.50, 0.0, 0.50, 0.0],
+          velocities: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+          time_from_start: {secs: 2, nsecs: 0}
+        }
+      ]
+    }
+  }
+}"
+
+```
+2. Controlling the Gripper:
+
+To open the gripper-
+```
+rostopic pub -1 /gripper_controller/gripper_action/goal control_msgs/GripperCommandActionGoal "goal: {command: {position: 0.1, max_effort: 50.0}}" 
+```
+To close the gripper-
+```
+rostopic pub -1 /gripper_controller/gripper_action/goal control_msgs/GripperCommandActionGoal "goal: {command: {position: 0.0, max_effort: 50.0}}"
+```
+3. To move the Fetch robot-
+```
+```
+4. 
+
+
+
+---
+### Chapter 4: Controlling Fetch’s Arm and Gripper to Pick Up an Object
 
 1. Understand Fetch’s Arm and Gripper
 
@@ -225,7 +263,7 @@ rosmsg show geometry_msgs/Twist
 2. Spawn an Object in Gazebo
 
 ```
-cd ~/catkin_ws/src/my_fetch_control
+cd ~/catkin_ws/src/my_fetch_controll
 mkdir -p models/my_box
 nano models/my_box/model.sdf
 ```
