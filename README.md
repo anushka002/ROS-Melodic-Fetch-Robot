@@ -239,10 +239,9 @@ rostopic pub -1 /gripper_controller/gripper_action/goal control_msgs/GripperComm
 ```
 3. To move the Fetch robot-
 ```
+rostopic pub -1 /cmd_vel geometry_msgs/Twist "{linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}"
 ```
-4. 
-
-
+![test4](https://github.com/user-attachments/assets/73f5103f-5e27-4f69-8aef-43f7daf64b4c)
 
 ---
 ### Chapter 4: Controlling Fetch’s Arm and Gripper to Pick Up an Object
@@ -458,9 +457,157 @@ rosrun my_fetch_control pick_object.py
 
 (need to modify joint values as gripper is not reaching the object location)
 
+To reset the simultion if Fetch is stuck or collides:
+```
+rosservice call /gazebo/reset_simulation "{}"
+```
 
+---
+### Chapter 5: Perception with Fetch’s Head Camera
 
+Use Fetch’s RGB camera (/head_camera/rgb/image_raw) to detect the red box we created and estimate its position relative to Fetch. 
+We’ll use OpenCV for simple color-based detection.
 
+1. To install OpenCV:
+```
+sudo apt-get install python-opencv
+python -c "import cv2; print(cv2.__version__)" # Verify installation
+```
+2. Open Gazebo simulation and Spawn Box:
+```
+roslaunch fetch_gazebo simulation.launch
+```
+```
+rosrun gazebo_ros spawn_model -sdf -model my_box_0 -x 0.8 -y 0.0 -z 0.0 -file ~/catkin_ws/src/my_fetch_control/models/my_box/model.sdf # close to fetch
+rosrun gazebo_ros spawn_model -sdf -model my_box_1 -x 8.0 -y 0.0 -z 0.0 -file ~/catkin_ws/src/my_fetch_control/models/my_box/model.sdf # far from fetch
+```
+3. Understand Topics for Fetch's Camera
 
+- Topic: /head_camera/rgb/image_raw
+- Message Type: sensor_msgs/Image
+- Details: Fetch’s head camera outputs RGB images.
+- Goal: Process these images to find the red box’s centroid (x, y in image space).
 
+4. Write the Detection Script
+    We’ll create detect_box.py to:
+    
+    - Subscribe to the camera feed.
+    - Convert ROS images to OpenCV format.
+    - Detect the red box by color.
+    - Output the box’s pixel coordinates.
+    ```
+    cd ~/catkin_ws/src/my_fetch_control/scripts/
+    touch detect_box.py
+    nano detec_box.py
+    ```
+    ```
+    #!/usr/bin/env python
+    # -*- coding: utf-8 -*-
+    
+    import rospy
+    import cv2
+    import numpy as np
+    from sensor_msgs.msg import Image
+    from cv_bridge import CvBridge
+    
+    def image_callback(msg):
+        # Convert ROS Image message to OpenCV format
+        bridge = CvBridge()
+        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+    
+        # Convert BGR to HSV for color detection
+        hsv = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
+    
+        # Define red color range in HSV
+        lower_red1 = np.array([0, 120, 70])    # Lower bound for red (Hue 0-10)
+        upper_red1 = np.array([10, 255, 255])
+        lower_red2 = np.array([170, 120, 70])  # Upper bound for red (Hue 170-180)
+        upper_red2 = np.array([180, 255, 255])
+    
+        # Create masks for red
+        mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+        mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+        mask = mask1 + mask2  # Combine both red ranges
+    
+        # Find contours (handle OpenCV 3.x return values)
+        _, contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if contours:
+            # Get the largest contour (assume it’s the box)
+            largest_contour = max(contours, key=cv2.contourArea)
+            if cv2.contourArea(largest_contour) > 100:  # Filter small noise
+                # Calculate centroid
+                M = cv2.moments(largest_contour)
+                if M["m00"] != 0:
+                    cX = int(M["m10"] / M["m00"])
+                    cY = int(M["m01"] / M["m00"])
+                    rospy.loginfo("Box centroid: (x=%d, y=%d)", cX, cY)
+    
+                    # Draw centroid on image for visualization
+                    cv2.circle(cv_image, (cX, cY), 5, (0, 255, 0), -1)
+        
+        # Show the image (optional, for debugging)
+        cv2.imshow("Camera Feed", cv_image)
+        cv2.imshow("Mask", mask)
+        cv2.waitKey(1)
+    
+    def detect_box():
+        rospy.init_node('box_detector', anonymous=True)
+        rospy.Subscriber('/head_camera/rgb/image_raw', Image, image_callback)
+        rospy.loginfo("Starting box detection...")
+        rospy.spin()
+        cv2.destroyAllWindows()
+    
+    if __name__ == '__main__':
+        try:
+            detect_box()
+        except rospy.ROSInterruptException:
+            pass
+    ```
+    Make it executable:
+    ```
+    chmod +x ~/catkin_ws/src/my_fetch_control/scripts/detect_box.py
+    ```
+5. Run detection:
+```
+rosrun my_fetch_control detect_box.py
+```
+Output (Detecting Box 2):
+![test5](https://github.com/user-attachments/assets/8ed6f3be-46cc-4a1a-a002-b30e7ba3a178)
+
+6. Move Fetch's head to Visualize the closer box:
+```
+rostopic pub /head_controller/point_head/goal control_msgs/PointHeadActionGoal "header:
+  seq: 0
+  stamp: {secs: 0, nsecs: 0}
+  frame_id: 'base_link'
+goal_id: {stamp: {secs: 0, nsecs: 0}, id: ''}
+goal:
+  target:
+    header:
+      seq: 0
+      stamp: {secs: 0, nsecs: 0}
+      frame_id: 'base_link'
+    point: {x: 0.5, y: 0.0, z: 0.0}
+  pointing_frame: 'head_tilt_link'
+  pointing_axis: {x: 1.0, y: 0.0, z: 0.0}
+  min_duration: {secs: 1, nsecs: 0}
+  max_velocity: 1.0" -1
+```
+Output: (Detecting Box 1)
+![test6](https://github.com/user-attachments/assets/6e0afda1-07b1-4aa9-9660-ad0ff4c49410)
+
+7. Summary
+- Camera Topic: Used /head_camera/rgb/image_raw for RGB images from Fetch’s head camera.
+- OpenCV Integration: Processed images with OpenCV to detect the red box.
+- Color Detection: Converted BGR to HSV, defined red ranges (Hue 0–10, 170–180), and created a mask.
+- Contour Finding: Identified the box’s contour and calculated its centroid (cX, cY) in pixel coordinates.
+- ROS-OpenCV Bridge: Used CvBridge to convert ROS Image messages to OpenCV format.
+- Head Control: Adjusted Fetch’s head with /head_controller/point_head/goal to aim at the box (tilt ~1.18 rad, 67°).
+- Visualization: Displayed camera feed and mask with OpenCV windows, marked centroid with a green dot.
+- Output: Logged box centroid (e.g., Box centroid: (x=320, y=240)).
+
+---
+
+### Chapter 6: Advanced Manipulation with MoveIt!
 
